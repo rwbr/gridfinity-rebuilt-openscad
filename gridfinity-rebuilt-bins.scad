@@ -75,6 +75,10 @@ cut_cylinders = false;
 cd = 10; // .1
 // chamfer around the top rim of the holes
 c_chamfer = 0.5; // .1
+// Stagger cylinders in honeycomb pattern (for large diameter cylinders like 42mm+)
+stagger_cylinders = false;
+// Minimum wall thickness between cylinders (only for staggered mode)
+c_spacing = 1; // .1
 
 /* [Compartment Features] */
 // the type of tabs
@@ -127,17 +131,98 @@ echo("Height breakdown:");
 pprint(bin_get_height_breakdown(bin1));
 
 bin_render(bin1) {
-    bin_subdivide(bin1, [divx, divy]) {
-        depth_real = cgs(height=depth).z;
-        if (cut_cylinders) {
-            cut_chamfered_cylinder(cd/2, depth_real, c_chamfer);
-        } else {
-            cut_compartment_auto(
-                cgs(height=depth),
-                style_tab,
-                place_tab != 0,
-                scoop
-            );
+    if (cut_cylinders && stagger_cylinders) {
+        // Quincunx pattern (like dots on dice "5") for large cylinders
+        // Origin [0,0,0] is at the CENTER of the bin
+        // c_spacing is MINIMUM spacing - actual may be larger for even distribution
+
+        depth_real = depth > 0 ? depth : bin_get_infill_size_mm(bin1).z;
+        infill_size = bin_get_infill_size_mm(bin1);
+
+        // Outer radius of cutout (cylinder + chamfer)
+        outer_r = cd/2 + c_chamfer;
+
+        // Safe zone for cylinder CENTERS
+        // Must maintain clearance from walls:
+        // - outer_r: cylinder + chamfer radius
+        // - c_spacing: minimum gap (same as between cylinders)
+        // - STACKING_LIP_SIZE.x: lip protrudes into bin (if enabled)
+        lip_clearance = include_lip ? STACKING_LIP_SIZE.x : 0;
+        wall_margin = outer_r + c_spacing + lip_clearance;
+        safe_w = infill_size.x - 2 * wall_margin;
+        safe_h = infill_size.y - 2 * wall_margin;
+
+        // Minimum center-to-center distance
+        min_dist = cd + c_spacing;
+
+        // How many cylinders fit in full rows (even rows)?
+        full_row_count = max(1, floor(safe_w / min_dist) + 1);
+        offset_row_count = max(1, full_row_count - 1);
+
+        // Spread cylinders evenly across safe zone (not tight packing)
+        actual_h_step = (full_row_count > 1) ? safe_w / (full_row_count - 1) : 0;
+
+        // For staggered rows, calculate minimum vertical spacing
+        // Two constraints:
+        // 1. Diagonal distance must be >= min_dist
+        //    diag = sqrt((h_step/2)² + v_step²) >= min_dist
+        //    v_step >= sqrt(min_dist² - (h_step/2)²)
+        // 2. Same-column cylinders (2 rows apart) must not overlap
+        //    2 * v_step >= min_dist
+        //    v_step >= min_dist / 2
+        half_h = actual_h_step / 2;
+        diagonal_v_step = (half_h >= min_dist) ? 0 : sqrt(min_dist * min_dist - half_h * half_h);
+        same_col_v_step = min_dist / 2;
+        min_v_step = max(diagonal_v_step, same_col_v_step);
+
+        // How many rows fit?
+        num_rows = (min_v_step > 0) ? max(1, floor(safe_h / min_v_step) + 1) : 1;
+
+        // Spread rows evenly across safe zone
+        actual_v_step = (num_rows > 1) ? safe_h / (num_rows - 1) : 0;
+
+        // Pattern fills safe zone (margins are at outer_r from bin walls)
+        pattern_w = (full_row_count > 1) ? safe_w : 0;
+        pattern_h = (num_rows > 1) ? safe_h : 0;
+
+        // Debug
+        echo(str("Quincunx: safe=[", safe_w, ",", safe_h, "] min_dist=", min_dist));
+        echo(str("  full_row=", full_row_count, " offset_row=", offset_row_count, " num_rows=", num_rows));
+        echo(str("  h_step=", actual_h_step, " v_step=", actual_v_step));
+        echo(str("  pattern=[", pattern_w, ",", pattern_h, "] margin=[", (safe_w-pattern_w)/2, ",", (safe_h-pattern_h)/2, "]"));
+
+        for (row = [0 : num_rows - 1]) {
+            is_offset = (row % 2 == 1);
+            n_cyl = is_offset ? offset_row_count : full_row_count;
+
+            // Calculate row width and center it
+            row_width = (n_cyl - 1) * actual_h_step;
+            start_x = -row_width / 2;
+
+            // Center pattern vertically
+            cy = -pattern_h / 2 + row * actual_v_step;
+
+            for (col = [0 : n_cyl - 1]) {
+                cx = start_x + col * actual_h_step;
+
+                translate([cx, cy, 0])
+                cut_chamfered_cylinder(cd/2, depth_real, c_chamfer);
+            }
+        }
+    } else {
+        // Standard grid pattern
+        bin_subdivide(bin1, [divx, divy]) {
+            depth_real = cgs(height=depth).z;
+            if (cut_cylinders) {
+                cut_chamfered_cylinder(cd/2, depth_real, c_chamfer);
+            } else {
+                cut_compartment_auto(
+                    cgs(height=depth),
+                    style_tab,
+                    place_tab != 0,
+                    scoop
+                );
+            }
         }
     }
 }
