@@ -68,7 +68,7 @@ chamfer_holes = true;
 hole_options = bundle_hole_options(refined_hole=false, magnet_hole=enable_magnet, screw_hole=false, crush_ribs=crush_ribs, chamfer=chamfer_holes, supportless=false);
 
 /* [Connectable Clips] */
-// Enable clip slots for connecting multiple baseplates (not compatible with screw-together styles)
+// Enable clip slots for connecting multiple baseplates (only compatible with thin style)
 enable_connectable = true;
 
 // ===== IMPLEMENTATION ===== //
@@ -102,8 +102,8 @@ module connector_scaled() {
         connector_profile();
 }
 
-// Place connectors at all clip slot positions
-if (enable_connectable) {
+// Place connectors at all clip slot positions (only for thin style)
+if (enable_connectable && style_plate == 0) {
     place_connectors(gridx, gridy, [true, true, true, true], l_grid);
 }
 
@@ -304,9 +304,8 @@ module gridfinityBaseplate(grid_size_bases, length, min_size_mm, sp, hole_option
             cutter_screw_together(grid_size.x, grid_size.y, length);
         }
 
-        // Connectable clip slots (not compatible with screw-together styles)
-        if (enable_connectable) {
-            assert(!screw_together, "Connectable clips are not compatible with screw-together baseplate styles (3, 4). Use style 0, 1, or 2.");
+        // Connectable clip slots (only for thin style)
+        if (enable_connectable && sp == 0) {
             cutter_connectable(grid_size.x, grid_size.y, [true, true, true, true], length, baseplate_height_mm, additional_height);
         }
     }
