@@ -64,6 +64,46 @@ BASEPLATE_INNER_RADIUS = BASEPLATE_OUTER_RADIUS - _BASEPLATE_PROFILE[3].x;
 BASEPLATE_INNER_DIAMETER = BASEPLATE_INNER_RADIUS * 2;
 
 // ****************************************
+// Connectable Clip Slot Constants
+// Based on STEP file analysis of Gridfinity Generator clips
+// ****************************************
+
+/**
+ * @Summary Tolerance added to clip slot dimensions for proper fit.
+ */
+CLIP_SLOT_TOLERANCE = 0.15;
+
+/**
+ * @Summary Total length of the clip slot along the baseplate edge.
+ */
+CLIP_SLOT_LENGTH = 19.6 + (2 * CLIP_SLOT_TOLERANCE);
+
+/**
+ * @Summary Total width of the clip slot (head/widest part).
+ */
+CLIP_SLOT_WIDTH = 4.3 + (2 * CLIP_SLOT_TOLERANCE);
+
+/**
+ * @Summary Width of the neck (narrow part) of the T-slot.
+ */
+CLIP_SLOT_NECK_WIDTH = 2.1 + (2 * CLIP_SLOT_TOLERANCE);
+
+/**
+ * @Summary Depth the clip slot cuts into the baseplate.
+ */
+CLIP_SLOT_DEPTH = 3.8 + CLIP_SLOT_TOLERANCE;
+
+/**
+ * @Summary Corner radius for the clip slot profile.
+ */
+CLIP_SLOT_CORNER_RADIUS = 0.3;
+
+/**
+ * @Summary Minimum distance from baseplate corner to slot center.
+ */
+CLIP_SLOT_CORNER_CLEARANCE = BASEPLATE_OUTER_RADIUS + (CLIP_SLOT_LENGTH / 2) + 1;
+
+// ****************************************
 // Implementation Functions
 // ****************************************
 

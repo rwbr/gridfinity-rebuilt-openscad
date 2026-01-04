@@ -21,9 +21,9 @@ $fs = 0.25;
 
 /* [General Settings] */
 // number of bases along x-axis
-gridx = 1;
+gridx = 2;
 // number of bases along y-axis
-gridy = 1;
+gridy = 2;
 
 /* [Screw Together Settings - Defaults work for M3 and 4-40] */
 // screw diameter
@@ -50,8 +50,8 @@ fity = 0; // [-1:0.1:1]
 
 /* [Styles] */
 
-// baseplate styles
-style_plate = 3; // [0: thin, 1:weighted, 2:skeletonized, 3: screw together, 4: screw together minimal]
+// baseplate styles (0-2 compatible with connectable clips, 3-4 use screw-together instead)
+style_plate = 0; // [0: thin, 1:weighted, 2:skeletonized, 3: screw together, 4: screw together minimal]
 
 
 // hole styles
@@ -67,10 +67,49 @@ chamfer_holes = true;
 
 hole_options = bundle_hole_options(refined_hole=false, magnet_hole=enable_magnet, screw_hole=false, crush_ribs=crush_ribs, chamfer=chamfer_holes, supportless=false);
 
+/* [Connectable Clips] */
+// Enable clip slots for connecting multiple baseplates (not compatible with screw-together styles)
+enable_connectable = true;
+
 // ===== IMPLEMENTATION ===== //
 
 color("tomato")
 gridfinityBaseplate([gridx, gridy], l_grid, [distancex, distancey], style_plate, hole_options, style_hole, [fitx, fity]);
+
+// ===== CONNECTOR (umgekehrtes L - ohne unteren Fuß) =====
+module connector_profile() {
+    width_top = 20;
+    width_middle = 12.5;
+    height_top = 10;
+    height_middle = 12;
+
+    // L-Profil (nur mittlere und obere Stufe)
+    polygon(points=[
+        [0, 0],
+        [width_middle, 0],
+        [width_middle, height_middle],
+        [width_top, height_middle],
+        [width_top, height_middle + height_top],
+        [0, height_middle + height_top]
+    ]);
+}
+
+module connector_scaled() {
+    depth = 200;  // verlängert von 150 auf 200 (skaliert: 15mm -> 20mm)
+    rotate([90, 0, 0])
+    translate([0, 0, -depth])
+    linear_extrude(height = depth)
+        connector_profile();
+}
+
+// Connector neben der Baseplate (Faktor 0.1)
+// Baseplate ist 2x2 = 84mm, zentriert, also Außenkante bei x=42
+// Slot ist bei y = -21 (Mitte der unteren Grid-Zelle)
+translate([42, -11, 1.05])
+rotate([0, 0, 180])
+scale([0.075, 0.1, 0.075])  // x und Höhe mit 0.75 skaliert
+color("gold")
+connector_scaled();
 
 // ===== CONSTRUCTION ===== //
 
@@ -214,6 +253,12 @@ module gridfinityBaseplate(grid_size_bases, length, min_size_mm, sp, hole_option
             translate([0, 0, additional_height/2])
             cutter_screw_together(grid_size.x, grid_size.y, length);
         }
+
+        // Connectable clip slots (not compatible with screw-together styles)
+        if (enable_connectable) {
+            assert(!screw_together, "Connectable clips are not compatible with screw-together baseplate styles (3, 4). Use style 0, 1, or 2.");
+            cutter_connectable(grid_size.x, grid_size.y, [true, true, true, true], length, baseplate_height_mm, additional_height);
+        }
     }
 }
 
@@ -329,3 +374,290 @@ module cutter_screw_together(gx, gy, size = l_grid) {
         cylinder(h=size/2, d=d_screw, center = true);
     }
 }
+
+// ===== CONNECTABLE CLIP SLOTS ===== //
+
+/**
+ * @brief 2D profile of the clip slot (T-slot shape).
+ * @details Narrow at top (surface), wide at bottom (for flanges).
+ *          Centered on X-axis, Y=0 is surface, positive Y goes into material.
+ */
+module clip_slot_profile() {
+    // T-slot profile: narrow opening, wider cavity below
+    // Based on STEP file measurements + tolerance
+    neck_half = CLIP_SLOT_NECK_WIDTH / 2;
+    head_half = CLIP_SLOT_WIDTH / 2;
+
+    // Transition depth (where neck meets head)
+    transition_depth = 2.15 + CLIP_SLOT_TOLERANCE;
+
+    // Profile points (right half, will be mirrored)
+    points = [
+        [0, 0],                              // Center top
+        [neck_half, 0],                      // Right edge of narrow opening
+        [neck_half, transition_depth],       // Down to transition
+        [head_half, transition_depth + 0.3], // Out to wide section (small chamfer)
+        [head_half, CLIP_SLOT_DEPTH],        // Down to bottom
+        [0, CLIP_SLOT_DEPTH],                // Center bottom
+    ];
+
+    // Create symmetric polygon by mirroring
+    left_points = [for (i = [len(points)-2:-1:1]) [-points[i].x, points[i].y]];
+    all_points = concat(points, left_points);
+
+    // Apply corner rounding
+    offset(r = CLIP_SLOT_CORNER_RADIUS)
+    offset(r = -CLIP_SLOT_CORNER_RADIUS)
+    polygon(all_points);
+}
+
+/**
+ * @brief Creates a single clip slot cutter (negative space).
+ * @details Oriented to cut horizontally from edge.
+ *          Slot runs along Y-axis (length), cuts into X-axis (depth).
+ * @param height Height of the slot (should match baseplate height).
+ */
+module clip_slot_cutter(height = BASEPLATE_HEIGHT + 10) {
+    // Rotate and extrude the profile along the slot length
+    translate([0, 0, -TOLLERANCE])
+    rotate([0, -90, 0])
+    linear_extrude(CLIP_SLOT_DEPTH + TOLLERANCE)
+    rotate([0, 0, 90])
+    scale([1, height / CLIP_SLOT_LENGTH, 1])
+    square([CLIP_SLOT_LENGTH, 1], center = true);
+
+    // The actual T-slot profile extruded along the slot length
+    translate([TOLLERANCE, 0, height / 2])
+    rotate([90, 0, 0])
+    rotate([0, 90, 0])
+    linear_extrude(CLIP_SLOT_DEPTH + TOLLERANCE)
+    clip_slot_profile();
+}
+
+/**
+ * @brief Simpler clip slot cutter - rectangular with T-profile.
+ * @param height Height to cut through.
+ */
+module clip_slot_cutter_simple(height) {
+    // Main slot body - cut from edge inward
+    translate([TOLLERANCE, 0, 0])
+    rotate([0, -90, 0])
+    linear_extrude(CLIP_SLOT_DEPTH + 2*TOLLERANCE)
+    translate([0, 0, 0])
+    clip_slot_profile_extruded(height);
+}
+
+/**
+ * @brief 2D profile for extrusion (slot cross-section along edge).
+ * @param height Height of the slot.
+ */
+module clip_slot_profile_extruded(height) {
+    // Simple rectangle for the slot opening
+    square([height + 2*TOLLERANCE, CLIP_SLOT_LENGTH], center = true);
+}
+
+/**
+ * @brief Pattern clip slots along a single baseplate edge.
+ * @param grid_count Number of grid units along this edge.
+ * @param size Size of one grid unit (typically l_grid = 42).
+ * @param height Height of the baseplate.
+ * @details Places slots at grid boundaries only.
+ */
+module cutter_connectable_edge(grid_count, size, height) {
+    // Number of internal grid boundaries = grid_count - 1
+    // For a 2x2 baseplate, each edge has 1 internal boundary
+    num_slots = grid_count - 1;
+
+    if (num_slots > 0) {
+        edge_length = grid_count * size;
+
+        for (i = [1:num_slots]) {
+            // Position at grid boundary
+            slot_pos = (i * size) - (edge_length / 2);
+
+            translate([0, slot_pos, 0])
+            clip_slot_cutter_v2(height);
+        }
+    }
+}
+
+/**
+ * @brief Clip slot cutter v2 - cleaner implementation.
+ * @details Cuts a T-slot from the edge. Positioned at origin, cuts into +X.
+ * @param height Total height to cut through.
+ */
+module clip_slot_cutter_v2(height) {
+    neck_half = CLIP_SLOT_NECK_WIDTH / 2;
+    head_half = CLIP_SLOT_WIDTH / 2;
+    transition_depth = 2.15 + CLIP_SLOT_TOLERANCE;
+
+    translate([TOLLERANCE, 0, -TOLLERANCE])
+    rotate([0, -90, 0])
+    linear_extrude(CLIP_SLOT_DEPTH + 2*TOLLERANCE) {
+        // Slot profile in XY plane (X = height, Y = length along edge)
+        hull() {
+            // Narrow top section
+            translate([0, -neck_half, 0])
+            square([height + 2*TOLLERANCE, CLIP_SLOT_NECK_WIDTH]);
+        }
+
+        // Wide bottom section (the undercut for flanges)
+        translate([0, -head_half, 0])
+        square([transition_depth + TOLLERANCE, CLIP_SLOT_WIDTH]);
+    }
+}
+
+/**
+ * @brief Final clip slot cutter - stepped profile for clip insertion from above.
+ * @param height Total height of the baseplate.
+ * @param additional_height Height of the solid base section (below the lip).
+ * @details The clip is inserted from ABOVE. The slot has two levels:
+ *          - Upper section: narrow depth (for clip neck/stem)
+ *          - Lower section: deeper (for clip flanges)
+ *          This creates a step where the clip flanges rest.
+ *
+ *          Cross-section (looking at edge from outside):
+ *          ─────────────────────▶│  <- top surface
+ *          │                     │
+ *          │       │─────────────▼  <- step (neck depth)
+ *          │       │
+ *          │       ▼─────────────▶│  <- bottom (flange depth)
+ */
+module clip_slot_cutter_final(height, additional_height) {
+    slot_length = CLIP_SLOT_LENGTH;  // ~20mm along edge
+
+    // Einfache rechteckige Lücke für Connector
+    slot_depth = 6.0;  // Tiefe der Lücke
+
+    // Cutter startet bei z=1.05 (oberhalb der unteren Schräge)
+    cut_start_z = 1.05;
+    slot_height = height - cut_start_z + TOLLERANCE;
+
+    translate([0, -slot_length/2, cut_start_z]) {
+        // Einfache rechteckige Lücke
+        translate([-slot_depth, 0, 0])
+        cube([slot_depth + TOLLERANCE, slot_length, slot_height]);
+    }
+}
+
+/**
+ * @brief Create clip slot cutters for selected baseplate edges.
+ * @param gx Number of grid units along X axis.
+ * @param gy Number of grid units along Y axis.
+ * @param edges Which edges to add slots to [+X, +Y, -X, -Y].
+ * @param size Size of one grid unit.
+ * @param height Total height of the baseplate.
+ * @param additional_height Height of the solid base section (below the lip).
+ * @details The cutter module cuts in -X direction by default.
+ *          We rotate it to cut toward center from each edge.
+ */
+module cutter_connectable(gx, gy, edges, size, height, additional_height) {
+    half_x = gx * size / 2;
+    half_y = gy * size / 2;
+
+    // +X edge (right side) - need to cut in -X direction (toward center)
+    // Cutter default is -X, so no rotation needed
+    if (edges[0]) {
+        translate([half_x, 0, 0])
+        rotate([0, 0, 0])
+        cutter_connectable_edge_final(gy, size, height, additional_height);
+    }
+
+    // +Y edge (back/top side) - need to cut in -Y direction (toward center)
+    // Rotate 90° so -X becomes -Y
+    if (edges[1]) {
+        translate([0, half_y, 0])
+        rotate([0, 0, 90])
+        cutter_connectable_edge_final(gx, size, height, additional_height);
+    }
+
+    // -X edge (left side) - need to cut in +X direction (toward center)
+    // Rotate 180° so -X becomes +X
+    if (edges[2]) {
+        translate([-half_x, 0, 0])
+        rotate([0, 0, 180])
+        cutter_connectable_edge_final(gy, size, height, additional_height);
+    }
+
+    // -Y edge (front/bottom side) - need to cut in +Y direction (toward center)
+    // Rotate -90° so -X becomes +Y
+    if (edges[3]) {
+        translate([0, -half_y, 0])
+        rotate([0, 0, -90])
+        cutter_connectable_edge_final(gx, size, height, additional_height);
+    }
+}
+
+/**
+ * @brief Pattern clip slots along edge - ONE slot per grid cell, centered.
+ * @param grid_count Number of grid cells along this edge.
+ * @param size Size of one grid unit.
+ * @param height Total height of the baseplate.
+ * @param additional_height Height of the solid base section (below the lip).
+ */
+module cutter_connectable_edge_final(grid_count, size, height, additional_height) {
+    // One slot per grid cell, centered within each cell
+    edge_length = grid_count * size;
+
+    for (i = [0:grid_count-1]) {
+        // Center of each grid cell
+        slot_pos = ((i + 0.5) * size) - (edge_length / 2);
+
+        translate([0, slot_pos, 0])
+        clip_slot_cutter_final(height, additional_height);
+    }
+}
+
+// ===== CONNECTABLE CLIP GENERATOR ===== //
+
+/**
+ * @brief Generate a single connection clip.
+ * @details The clip has a triangular head (fits in grid profile) and T-shaped base.
+ */
+module connectable_clip() {
+    // Clip dimensions (slightly smaller than slot for fit)
+    fit_tolerance = 0.1;
+    clip_length = 19.6 - fit_tolerance;
+    neck_half = (2.1 - fit_tolerance) / 2;
+    head_half = (4.3 - fit_tolerance) / 2;
+    clip_depth = 3.8 - fit_tolerance;
+    transition = 2.15 - fit_tolerance/2;
+
+    // Triangular head height (sits in grid profile)
+    head_height = 2.5;
+
+    linear_extrude(clip_length, center = true) {
+        // T-shaped base
+        polygon([
+            // Narrow stem
+            [-neck_half, 0],
+            [-neck_half, -transition],
+            // Wide flange
+            [-head_half, -transition - 0.2],
+            [-head_half, -clip_depth],
+            [head_half, -clip_depth],
+            [head_half, -transition - 0.2],
+            // Back to stem
+            [neck_half, -transition],
+            [neck_half, 0],
+            // Triangular head
+            [head_half, 0],
+            [0, head_height],
+            [-head_half, 0],
+        ]);
+    }
+}
+
+/**
+ * @brief Generate multiple clips for printing.
+ * @param count Number of clips.
+ * @param spacing Space between clips.
+ */
+module connectable_clips(count = 4, spacing = 25) {
+    for (i = [0:count-1]) {
+        translate([i * spacing, 0, 0])
+        rotate([90, 0, 0])
+        connectable_clip();
+    }
+}
+
