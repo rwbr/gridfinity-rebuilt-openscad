@@ -51,3 +51,19 @@ This work is licensed under the same license as Gridfinity, being a
 [MIT License](https://opensource.org/licenses/MIT).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## Changelog
+
+### 2026-01-04
+- Added connectable baseplate feature with clip slots for thin style baseplates
+- Connector profile optimized to fit standard Gridfinity clips (clip.stl)
+- Connectors are automatically placed at all clip slot positions when `enable_connectable` is enabled
+- Added `gridfinity-clip.scad` for exporting clips as STL for 3D printing
+- Connectable feature is only available for thin baseplate style (style_plate = 0)
+
+### 2025-01-03
+- Added staggered (quincunx) cylinder pattern for large diameter cutouts in bins
+- Added `calculate_bin_height` function for easier height calculations
+- Added additional `gridz_define` option for more flexible height specification
+- Added example for centered compartments
+- Improved diagnostic info for `rounded_cube` assert failures
