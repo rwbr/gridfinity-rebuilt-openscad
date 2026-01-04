@@ -76,12 +76,12 @@ enable_connectable = true;
 color("tomato")
 gridfinityBaseplate([gridx, gridy], l_grid, [distancex, distancey], style_plate, hole_options, style_hole, [fitx, fity]);
 
-// ===== CONNECTOR (umgekehrtes L - ohne unteren Fuß) =====
+// ===== CONNECTOR (angepasst an clip.stl) =====
 module connector_profile() {
-    width_top = 20;
+    width_top = 19.1;      // angepasst für clip.stl Passform
     width_middle = 12.5;
-    height_top = 10;
-    height_middle = 12;
+    height_top = 7.6;      // angepasst für clip.stl Passform
+    height_middle = 13.7;  // angepasst für clip.stl Passform
 
     // L-Profil (nur mittlere und obere Stufe)
     polygon(points=[
@@ -108,8 +108,15 @@ module connector_scaled() {
 translate([42, -11, 1.05])
 rotate([0, 0, 180])
 scale([0.075, 0.1, 0.075])  // x und Höhe mit 0.75 skaliert
-color("gold")
+color("blue")
 connector_scaled();
+
+// ===== CLIP.STL zum Analysieren =====
+translate([42, -11.1, 5.1])
+rotate([90, 0, 0])
+color("gold")
+import("clip.stl");
+
 
 // ===== CONSTRUCTION ===== //
 
