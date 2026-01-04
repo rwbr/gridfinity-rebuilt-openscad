@@ -97,25 +97,68 @@ module connector_profile() {
 module connector_scaled() {
     depth = 200;  // verlängert von 150 auf 200 (skaliert: 15mm -> 20mm)
     rotate([90, 0, 0])
-    translate([0, 0, -depth])
+    translate([0, 0, -depth/2])  // zentriert entlang der Längsachse
     linear_extrude(height = depth)
         connector_profile();
 }
 
-// Connector neben der Baseplate (Faktor 0.1)
-// Baseplate ist 2x2 = 84mm, zentriert, also Außenkante bei x=42
-// Slot ist bei y = -21 (Mitte der unteren Grid-Zelle)
-translate([42, -11, 1.05])
-rotate([0, 0, 180])
-scale([0.075, 0.1, 0.075])  // x und Höhe mit 0.75 skaliert
-color("blue")
-connector_scaled();
+// Place connectors at all clip slot positions
+if (enable_connectable) {
+    place_connectors(gridx, gridy, [true, true, true, true], l_grid);
+}
 
-// ===== CLIP.STL zum Analysieren =====
-translate([42, -11.1, 5.1])
-rotate([90, 0, 0])
-color("gold")
-import("clip.stl");
+// Module to place connectors at all clip slot positions
+module place_connectors(gx, gy, edges, size) {
+    half_x = gx * size / 2;
+    half_y = gy * size / 2;
+
+    // +X edge (right side) - connector faces inward
+    if (edges[0]) {
+        translate([half_x, 0, 1.05])
+        rotate([0, 0, 180])
+        place_connectors_edge(gy, size);
+    }
+
+    // +Y edge (back side) - connector faces inward
+    if (edges[1]) {
+        translate([0, half_y, 1.05])
+        rotate([0, 0, -90])
+        place_connectors_edge(gx, size);
+    }
+
+    // -X edge (left side) - connector faces inward
+    if (edges[2]) {
+        translate([-half_x, 0, 1.05])
+        rotate([0, 0, 0])
+        place_connectors_edge(gy, size);
+    }
+
+    // -Y edge (front side) - connector faces inward
+    if (edges[3]) {
+        translate([0, -half_y, 1.05])
+        rotate([0, 0, 90])
+        place_connectors_edge(gx, size);
+    }
+}
+
+module place_connectors_edge(grid_count, size) {
+    edge_length = grid_count * size;
+
+    for (i = [0:grid_count-1]) {
+        slot_pos = ((i + 0.5) * size) - (edge_length / 2);
+
+        translate([0, slot_pos, 0])
+        scale([0.075, 0.1, 0.075])
+        color("tomato")
+        connector_scaled();
+    }
+}
+
+// ===== CLIP.STL zum Analysieren (ausgeblendet) =====
+// translate([42, -11.1, 5.1])
+// rotate([90, 0, 0])
+// color("gold")
+// import("clip.stl");
 
 
 // ===== CONSTRUCTION ===== //
