@@ -79,6 +79,8 @@ c_chamfer = 0.5; // .1
 stagger_cylinders = false;
 // Minimum wall thickness between cylinders (only for staggered mode)
 c_spacing = 1; // .1
+// Place cylinder centers on bin edges for seamless adjacent bins (disables stacking lip)
+edge_cylinders = 0; // [0:None, 1:X-Both, 2:Y-Both, 3:X-Left only, 4:X-Right only, 5:Y-Front only, 6:Y-Back only]
 
 /* [Compartment Features] */
 // the type of tabs
@@ -108,13 +110,26 @@ enable_thumbscrew = false;
 
 hole_options = bundle_hole_options(refined_holes, magnet_holes, screw_holes, crush_ribs, chamfer_holes, printable_hole_top);
 
+// Edge cylinders require no stacking lip
+include_lip_actual = (edge_cylinders > 0) ? false : include_lip;
+
+// Individual edge flags: which sides have cylinders on the edge
+edge_x_neg = (edge_cylinders == 1 || edge_cylinders == 3);  // Left
+edge_x_pos = (edge_cylinders == 1 || edge_cylinders == 4);  // Right
+edge_y_neg = (edge_cylinders == 2 || edge_cylinders == 5);  // Front
+edge_y_pos = (edge_cylinders == 2 || edge_cylinders == 6);  // Back
+
+// For backward compatibility
+edge_x = (edge_x_neg || edge_x_pos);
+edge_y = (edge_y_neg || edge_y_pos);
+
 // ===== IMPLEMENTATION ===== //
 
 bin1 = new_bin(
     grid_size = [gridx, gridy],
     height_mm = height(gridz, gridz_define, enable_zsnap),
     fill_height = height_internal,
-    include_lip = include_lip,
+    include_lip = include_lip_actual,
     hole_options = hole_options,
     only_corners = only_corners || half_grid,
     thumbscrew = enable_thumbscrew,
@@ -147,10 +162,22 @@ bin_render(bin1) {
         // - outer_r: cylinder + chamfer radius
         // - c_spacing: minimum gap (same as between cylinders)
         // - STACKING_LIP_SIZE.x: lip protrudes into bin (if enabled)
-        lip_clearance = include_lip ? STACKING_LIP_SIZE.x : 0;
+        // Edge cylinders: centers placed on bin boundary (margin = 0 on that side)
+        lip_clearance = include_lip_actual ? STACKING_LIP_SIZE.x : 0;
         wall_margin = outer_r + c_spacing + lip_clearance;
-        safe_w = infill_size.x - 2 * wall_margin;
-        safe_h = infill_size.y - 2 * wall_margin;
+
+        // Asymmetric margins for end pieces
+        margin_x_neg = edge_x_neg ? 0 : wall_margin;
+        margin_x_pos = edge_x_pos ? 0 : wall_margin;
+        margin_y_neg = edge_y_neg ? 0 : wall_margin;
+        margin_y_pos = edge_y_pos ? 0 : wall_margin;
+
+        safe_w = infill_size.x - margin_x_neg - margin_x_pos;
+        safe_h = infill_size.y - margin_y_neg - margin_y_pos;
+
+        // Start positions (not centered, but offset by margins)
+        start_x_base = -infill_size.x/2 + margin_x_neg;
+        start_y_base = -infill_size.y/2 + margin_y_neg;
 
         // Minimum center-to-center distance
         min_dist = cd + c_spacing;
@@ -195,15 +222,51 @@ bin_render(bin1) {
             is_offset = (row % 2 == 1);
             n_cyl = is_offset ? offset_row_count : full_row_count;
 
-            // Calculate row width and center it
-            row_width = (n_cyl - 1) * actual_h_step;
-            start_x = -row_width / 2;
+            // Calculate start position: offset rows are shifted by half step
+            start_x = start_x_base + (is_offset ? actual_h_step/2 : 0);
 
-            // Center pattern vertically
-            cy = -pattern_h / 2 + row * actual_v_step;
+            // Y position from base
+            cy = start_y_base + row * actual_v_step;
 
             for (col = [0 : n_cyl - 1]) {
                 cx = start_x + col * actual_h_step;
+
+                translate([cx, cy, 0])
+                cut_chamfered_cylinder(cd/2, depth_real, c_chamfer);
+            }
+        }
+    } else if (cut_cylinders && edge_cylinders > 0) {
+        // Standard grid pattern with edge-aligned cylinders
+        depth_real = depth > 0 ? depth : bin_get_infill_size_mm(bin1).z;
+        infill_size = bin_get_infill_size_mm(bin1);
+
+        // Asymmetric margins for end pieces
+        wall_margin_grid = cd/2 + c_chamfer + c_spacing;
+        margin_x_neg_g = edge_x_neg ? 0 : wall_margin_grid;
+        margin_x_pos_g = edge_x_pos ? 0 : wall_margin_grid;
+        margin_y_neg_g = edge_y_neg ? 0 : wall_margin_grid;
+        margin_y_pos_g = edge_y_pos ? 0 : wall_margin_grid;
+
+        safe_w = infill_size.x - margin_x_neg_g - margin_x_pos_g;
+        safe_h = infill_size.y - margin_y_neg_g - margin_y_pos_g;
+
+        // Start positions
+        start_x_g = -infill_size.x/2 + margin_x_neg_g;
+        start_y_g = -infill_size.y/2 + margin_y_neg_g;
+
+        // Number of cylinders in each direction
+        num_cols = max(1, divx);
+        num_rows = max(1, divy);
+
+        h_step = (num_cols > 1) ? safe_w / (num_cols - 1) : 0;
+        v_step = (num_rows > 1) ? safe_h / (num_rows - 1) : 0;
+
+        echo(str("Grid edge-aligned: safe=[", safe_w, ",", safe_h, "] cols=", num_cols, " rows=", num_rows));
+
+        for (row = [0 : num_rows - 1]) {
+            for (col = [0 : num_cols - 1]) {
+                cx = (num_cols > 1) ? (start_x_g + col * h_step) : 0;
+                cy = (num_rows > 1) ? (start_y_g + row * v_step) : 0;
 
                 translate([cx, cy, 0])
                 cut_chamfered_cylinder(cd/2, depth_real, c_chamfer);
